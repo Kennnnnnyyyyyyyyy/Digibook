@@ -39,6 +39,17 @@ export default function EditorPage() {
 
   const user = getStoredUser();
 
+  // Validate authentication on mount
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token || !user) {
+      setError('You must be logged in to access this page. Redirecting to login...');
+      setTimeout(() => {
+        logout();
+      }, 2000);
+    }
+  }, []);
+
   // Load template info
   useEffect(() => {
     if (!templateId) return;
@@ -101,8 +112,11 @@ export default function EditorPage() {
 
     const hasFormData = Object.keys(formDataRef.current).length > 0;
     const hasAnnotations = annotationsRef.current.length > 0;
+    const isFormFillable = template?.hasFormFields !== false;
 
-    if (!hasFormData && !hasAnnotations) {
+    // For fillable PDFs, allow saving even without manual form data
+    // since the user fills the PDF directly
+    if (!hasFormData && !hasAnnotations && !isFormFillable) {
       if (!isAutoSave) {
         setError('Please fill in at least one field or add annotations before saving.');
       }
@@ -129,6 +143,15 @@ export default function EditorPage() {
       // Reload drafts list
       await loadDrafts();
     } catch (err: any) {
+      // Check for authentication errors
+      if (err.response?.status === 401) {
+        setError('Your session has expired. Please log in again.');
+        setTimeout(() => {
+          logout();
+        }, 2000);
+        return;
+      }
+      
       const errorMsg = err.response?.data?.error || 'Failed to save draft. Please try again.';
       setError(errorMsg);
 
@@ -163,8 +186,11 @@ export default function EditorPage() {
 
     const hasFormData = Object.keys(formData).length > 0;
     const hasAnnotations = annotations.length > 0;
+    const isFormFillable = template?.hasFormFields !== false;
 
-    if (!hasFormData && !hasAnnotations) {
+    // For fillable PDFs, allow exporting even without manual form data
+    // since the user fills the PDF directly
+    if (!hasFormData && !hasAnnotations && !isFormFillable) {
       setError('Please fill in the form or add annotations before exporting.');
       return;
     }
@@ -412,6 +438,10 @@ export default function EditorPage() {
             /* Form Fields for Fillable PDFs */
             <div style={{ marginBottom: '2rem', padding: '1.5rem', border: '1px solid #ddd', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
               <h3 style={{ marginTop: 0 }}>Patient Information</h3>
+
+              <p style={{ marginTop: '0.25rem', marginBottom: '1rem', color: '#666' }}>
+                Note: Only the fields you fill here are saved in drafts. Typing directly in the PDF preview is not captured by the browser.
+              </p>
 
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
