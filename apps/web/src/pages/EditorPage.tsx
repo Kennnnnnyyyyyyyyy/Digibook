@@ -452,8 +452,8 @@ export default function EditorPage() {
         </div>
 
         {/* Right: Form Fields or Annotation Toolbar */}
-        <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', maxHeight: '80vh' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexShrink: 0 }}>
             <h2>{isUnfillableForm ? 'Annotation Toolbar' : 'Fill Form'}</h2>
             {lastSaved && (
               <span style={{ fontSize: '0.9rem', color: '#666' }}>
@@ -462,10 +462,11 @@ export default function EditorPage() {
             )}
           </div>
 
-          {isUnfillableForm ? (
-            /* Annotation Toolbar for Unfillable PDFs */
-            <div style={{ marginBottom: '2rem', padding: '1.5rem', border: '1px solid #ddd', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
-              <h3 style={{ marginTop: 0 }}>Text Styling</h3>
+          <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+            {isUnfillableForm ? (
+              /* Annotation Toolbar for Unfillable PDFs */
+              <div style={{ marginBottom: '2rem', padding: '1.5rem', border: '1px solid #ddd', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
+                <h3 style={{ marginTop: 0 }}>Text Styling</h3>
 
               <div style={{ marginBottom: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
@@ -562,46 +563,7 @@ export default function EditorPage() {
               )}
             </div>
           )}
-
-          {/* Action Buttons */}
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-            <button
-              onClick={() => handleSaveDraft(false)}
-              disabled={saving || loading}
-              style={{
-                flex: 1,
-                padding: '0.75rem',
-                fontSize: '1rem',
-                backgroundColor: '#28a745',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: saving || loading ? 'not-allowed' : 'pointer',
-                opacity: saving || loading ? 0.6 : 1
-              }}
-            >
-              {saving ? 'Saving...' : '💾 Save Draft'}
-            </button>
-
-            <button
-              onClick={handleExportPDF}
-              disabled={exporting || saving || loading}
-              style={{
-                flex: 1,
-                padding: '0.75rem',
-                fontSize: '1rem',
-                backgroundColor: '#007bff',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: exporting || saving || loading ? 'not-allowed' : 'pointer',
-                opacity: exporting || saving || loading ? 0.6 : 1
-              }}
-            >
-              {exporting ? 'Exporting...' : '📥 Download PDF'}
-            </button>
-          </div>
-
+          
           {/* Saved Drafts */}
           {drafts.length > 0 && (
             <div style={{ marginTop: '2rem', padding: '1.5rem', border: '1px solid #ddd', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
@@ -647,6 +609,46 @@ export default function EditorPage() {
               <li>Load previous drafts to continue where you left off</li>
               <li>Click "Download PDF" to export and download the filled form</li>
             </ul>
+          </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexShrink: 0 }}>
+            <button
+              onClick={() => handleSaveDraft(false)}
+              disabled={saving || loading}
+              style={{
+                flex: 1,
+                padding: '0.75rem',
+                fontSize: '1rem',
+                backgroundColor: '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: saving || loading ? 'not-allowed' : 'pointer',
+                opacity: saving || loading ? 0.6 : 1
+              }}
+            >
+              {saving ? 'Saving...' : '💾 Save Draft'}
+            </button>
+
+            <button
+              onClick={handleExportPDF}
+              disabled={exporting || saving || loading}
+              style={{
+                flex: 1,
+                padding: '0.75rem',
+                fontSize: '1rem',
+                backgroundColor: '#007bff',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: exporting || saving || loading ? 'not-allowed' : 'pointer',
+                opacity: exporting || saving || loading ? 0.6 : 1
+              }}
+            >
+              {exporting ? 'Exporting...' : '📥 Download PDF'}
+            </button>
           </div>
         </div>
       </div>
