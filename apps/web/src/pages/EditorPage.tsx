@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getTemplates, getTemplateFileUrl, type Template } from '../api/templates';
+import { getTemplates, getTemplateFileUrl, getTemplateFormSchema, type Template, type TemplateFormField } from '../api/templates';
 import { createDraft, getDrafts, getDraft, exportDraft, getDraftExportUrl, type Draft, type Annotation } from '../api/drafts';
 import { getStoredUser, logout } from '../api/auth';
 import PdfAnnotationCanvas from '../components/PdfAnnotationCanvas';
@@ -12,6 +12,7 @@ export default function EditorPage() {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [formSchema, setFormSchema] = useState<TemplateFormField[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -69,6 +70,23 @@ export default function EditorPage() {
     loadTemplate();
   }, [templateId]);
 
+  // Load form schema for fillable PDFs
+  useEffect(() => {
+    if (!templateId) return;
+
+    const loadSchema = async () => {
+      try {
+        const schema = await getTemplateFormSchema(templateId);
+        setFormSchema(schema);
+      } catch (err) {
+        console.error('Failed to load form schema:', err);
+        setFormSchema([]);
+      }
+    };
+
+    loadSchema();
+  }, [templateId]);
+
   // Load existing drafts
   const loadDrafts = useCallback(async () => {
     if (!templateId) return;
@@ -110,8 +128,10 @@ export default function EditorPage() {
   const handleSaveDraft = async (isAutoSave = false) => {
     if (!templateId) return;
 
-    const hasFormData = Object.keys(formDataRef.current).length > 0;
-    const hasAnnotations = annotationsRef.current.length > 0;
+    const currentFormData = formData;
+    const currentAnnotations = annotations;
+    const hasFormData = Object.keys(currentFormData).length > 0;
+    const hasAnnotations = currentAnnotations.length > 0;
     const isFormFillable = template?.hasFormFields !== false;
 
     // For fillable PDFs, allow saving even without manual form data
@@ -130,8 +150,8 @@ export default function EditorPage() {
     try {
       await createDraft({
         templateId,
-        formData: formDataRef.current,
-        annotations: annotationsRef.current.length > 0 ? annotationsRef.current : undefined,
+        formData: currentFormData,
+        annotations: currentAnnotations.length > 0 ? currentAnnotations : undefined,
       });
 
       setLastSaved(new Date());
@@ -184,8 +204,10 @@ export default function EditorPage() {
   const handleExportPDF = async () => {
     if (!templateId) return;
 
-    const hasFormData = Object.keys(formData).length > 0;
-    const hasAnnotations = annotations.length > 0;
+    const currentFormData = formData;
+    const currentAnnotations = annotations;
+    const hasFormData = Object.keys(currentFormData).length > 0;
+    const hasAnnotations = currentAnnotations.length > 0;
     const isFormFillable = template?.hasFormFields !== false;
 
     // For fillable PDFs, allow exporting even without manual form data
@@ -202,8 +224,8 @@ export default function EditorPage() {
       // Save draft first
       const draft = await createDraft({
         templateId,
-        formData,
-        annotations: annotations.length > 0 ? annotations : undefined,
+        formData: currentFormData,
+        annotations: currentAnnotations.length > 0 ? currentAnnotations : undefined,
       });
 
       // Export the draft
@@ -248,6 +270,91 @@ export default function EditorPage() {
       ...prev,
       [fieldName]: value
     }));
+  };
+
+  const renderDynamicField = (field: TemplateFormField) => {
+    const value = formData[field.name];
+    const labelStyle = { display: 'block', marginBottom: '0.35rem', fontWeight: 'bold' } as const;
+    const inputStyle = { width: '100%', padding: '0.5rem', marginTop: '0.25rem', fontSize: '1rem' } as const;
+
+    switch (field.type) {
+      case 'checkbox':
+        return (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <input
+              type="checkbox"
+              checked={!!value}
+              onChange={(e) => handleFieldChange(field.name, e.target.checked)}
+            />
+            <span>{field.name}{field.required ? ' *' : ''}</span>
+          </label>
+        );
+
+      case 'radio':
+        if (field.options && field.options.length > 0) {
+          return (
+            <div>
+              <span style={labelStyle}>{field.name}{field.required ? ' *' : ''}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                {field.options.map((opt) => (
+                  <label key={opt} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <input
+                      type="radio"
+                      name={field.name}
+                      value={opt}
+                      checked={value === opt}
+                      onChange={() => handleFieldChange(field.name, opt)}
+                    />
+                    <span>{opt}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <label style={labelStyle}>
+            {field.name}{field.required ? ' *' : ''}
+            <input
+              type="text"
+              value={value || ''}
+              onChange={(e) => handleFieldChange(field.name, e.target.value)}
+              style={inputStyle}
+            />
+          </label>
+        );
+
+      case 'dropdown':
+      case 'list':
+        return (
+          <label style={labelStyle}>
+            {field.name}{field.required ? ' *' : ''}
+            <select
+              value={value || ''}
+              onChange={(e) => handleFieldChange(field.name, e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">Select...</option>
+              {(field.options || []).map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+          </label>
+        );
+
+      default:
+        return (
+          <label style={labelStyle}>
+            {field.name}{field.required ? ' *' : ''}
+            <input
+              type="text"
+              value={value || ''}
+              onChange={(e) => handleFieldChange(field.name, e.target.value)}
+              style={inputStyle}
+            />
+          </label>
+        );
+    }
   };
 
   const handleLogout = () => {
@@ -435,77 +542,24 @@ export default function EditorPage() {
               </div>
             </div>
           ) : (
-            /* Form Fields for Fillable PDFs */
+            /* Dynamic Form for Fillable PDFs */
             <div style={{ marginBottom: '2rem', padding: '1.5rem', border: '1px solid #ddd', borderRadius: '4px', backgroundColor: '#f9f9f9' }}>
-              <h3 style={{ marginTop: 0 }}>Patient Information</h3>
-
+              <h3 style={{ marginTop: 0 }}>PDF Form Fields</h3>
               <p style={{ marginTop: '0.25rem', marginBottom: '1rem', color: '#666' }}>
-                Note: Only the fields you fill here are saved in drafts. Typing directly in the PDF preview is not captured by the browser.
+                These fields mirror the PDF’s form fields. Values you enter here are saved in drafts and used on export.
               </p>
 
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  Full Name:
-                  <input
-                    type="text"
-                    value={formData.fullName || ''}
-                    onChange={(e) => handleFieldChange('fullName', e.target.value)}
-                    placeholder="Enter full name"
-                    style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', fontSize: '1rem' }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  Date of Birth:
-                  <input
-                    type="date"
-                    value={formData.dateOfBirth || ''}
-                    onChange={(e) => handleFieldChange('dateOfBirth', e.target.value)}
-                    style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', fontSize: '1rem' }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  Phone Number:
-                  <input
-                    type="tel"
-                    value={formData.phoneNumber || ''}
-                    onChange={(e) => handleFieldChange('phoneNumber', e.target.value)}
-                    placeholder="(123) 456-7890"
-                    style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', fontSize: '1rem' }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  Email:
-                  <input
-                    type="email"
-                    value={formData.email || ''}
-                    onChange={(e) => handleFieldChange('email', e.target.value)}
-                    placeholder="email@example.com"
-                    style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', fontSize: '1rem' }}
-                  />
-                </label>
-              </div>
-
-              <div style={{ marginBottom: '1rem' }}>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  Address:
-                  <textarea
-                    value={formData.address || ''}
-                    onChange={(e) => handleFieldChange('address', e.target.value)}
-                    placeholder="Street address, City, State, ZIP"
-                    rows={3}
-                    style={{ width: '100%', padding: '0.5rem', marginTop: '0.25rem', fontSize: '1rem' }}
-                  />
-                </label>
-              </div>
+              {(formSchema && formSchema.length > 0) ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {formSchema.map((field) => (
+                    <div key={field.name}>
+                      {renderDynamicField(field)}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ color: '#888' }}>No form schema detected for this template.</p>
+              )}
             </div>
           )}
 

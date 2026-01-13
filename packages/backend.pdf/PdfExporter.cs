@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Backend.Core.DTOs;
 using iText.Forms;
 using iText.Forms.Fields;
 using iText.Kernel.Pdf;
@@ -11,17 +12,25 @@ namespace Backend.Pdf;
 
 public interface IPdfExporter
 {
-    Task<string> ExportDraftAsync(string templatePath, string draftId, string userId, JsonDocument formData, string? annotationsJson, string? drawingPath, string contentRootPath);
+    Task<string> ExportDraftAsync(
+        string templatePath,
+        string draftId,
+        string userId,
+        JsonDocument formData,
+        List<PdfFormFieldSchemaDto>? formSchema,
+        string? annotationsJson,
+        string? drawingPath,
+        string contentRootPath);
 }
 
 public class PdfExporter : IPdfExporter
 {
-    public async Task<string> ExportDraftAsync(string templatePath, string draftId, string userId, JsonDocument formData, string? annotationsJson, string? drawingPath, string contentRootPath)
+    public async Task<string> ExportDraftAsync(string templatePath, string draftId, string userId, JsonDocument formData, List<PdfFormFieldSchemaDto>? formSchema, string? annotationsJson, string? drawingPath, string contentRootPath)
     {
-        return await Task.Run(() => ExportDraftSync(templatePath, draftId, userId, formData, annotationsJson, drawingPath, contentRootPath));
+        return await Task.Run(() => ExportDraftSync(templatePath, draftId, userId, formData, formSchema, annotationsJson, drawingPath, contentRootPath));
     }
 
-    private string ExportDraftSync(string templatePath, string draftId, string userId, JsonDocument formData, string? annotationsJson, string? drawingPath, string contentRootPath)
+    private string ExportDraftSync(string templatePath, string draftId, string userId, JsonDocument formData, List<PdfFormFieldSchemaDto>? formSchema, string? annotationsJson, string? drawingPath, string contentRootPath)
     {
         // Create output directory
         var exportsDir = Path.GetFullPath(Path.Combine(contentRootPath, "..", "..", "storage", "exports", userId));
@@ -61,7 +70,7 @@ public class PdfExporter : IPdfExporter
                     if (form != null && form.GetAllFormFields().Count > 0)
                     {
                         // Try to fill form fields if they exist
-                        FillFormFields(form, formData);
+                        FillFormFields(form, formData, formSchema);
                         form.FlattenFields(); // Flatten to make fields non-editable
                     }
                     
@@ -111,20 +120,81 @@ public class PdfExporter : IPdfExporter
         operation();
     }
 
-    private void FillFormFields(PdfAcroForm form, JsonDocument formData)
+    private void FillFormFields(PdfAcroForm form, JsonDocument formData, List<PdfFormFieldSchemaDto>? schema)
     {
         var fields = form.GetAllFormFields();
         var root = formData.RootElement;
+
+        PdfFormFieldSchemaDto? FindSchema(string name)
+        {
+            if (schema == null) return null;
+            foreach (var s in schema)
+            {
+                if (string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase))
+                    return s;
+            }
+            return null;
+        }
 
         foreach (var kvp in fields)
         {
             var fieldName = kvp.Key;
             var field = kvp.Value;
 
-            if (root.TryGetProperty(fieldName, out var value))
+            if (!root.TryGetProperty(fieldName, out var value))
+                continue;
+
+            var fieldSchema = FindSchema(fieldName);
+
+            try
             {
-                try
+                if (fieldSchema != null)
                 {
+                    switch (fieldSchema.Type)
+                    {
+                        case "checkbox":
+                            {
+                                var isChecked = value.ValueKind switch
+                                {
+                                    System.Text.Json.JsonValueKind.True => true,
+                                    System.Text.Json.JsonValueKind.False => false,
+                                    System.Text.Json.JsonValueKind.String => !string.IsNullOrWhiteSpace(value.GetString()),
+                                    _ => value.ValueKind != System.Text.Json.JsonValueKind.Undefined && value.ValueKind != System.Text.Json.JsonValueKind.Null
+                                };
+                                field.SetValue(isChecked ? "Yes" : "Off");
+                                break;
+                            }
+                        case "radio":
+                            {
+                                var chosen = value.ValueKind == System.Text.Json.JsonValueKind.String ? value.GetString() ?? string.Empty : value.GetRawText();
+                                field.SetValue(chosen);
+                                break;
+                            }
+                        case "dropdown":
+                        case "list":
+                            {
+                                var chosen = value.ValueKind == System.Text.Json.JsonValueKind.String ? value.GetString() ?? string.Empty : value.GetRawText();
+                                field.SetValue(chosen);
+                                break;
+                            }
+                        default:
+                            {
+                                var strValue = value.ValueKind switch
+                                {
+                                    System.Text.Json.JsonValueKind.True => "true",
+                                    System.Text.Json.JsonValueKind.False => "false",
+                                    System.Text.Json.JsonValueKind.String => value.GetString() ?? "",
+                                    System.Text.Json.JsonValueKind.Number => value.GetRawText(),
+                                    _ => value.GetRawText()
+                                };
+                                field.SetValue(strValue);
+                                break;
+                            }
+                    }
+                }
+                else
+                {
+                    // Fallback: legacy behavior
                     string strValue = value.ValueKind switch
                     {
                         System.Text.Json.JsonValueKind.True => "Yes",
@@ -136,10 +206,10 @@ public class PdfExporter : IPdfExporter
 
                     field.SetValue(strValue);
                 }
-                catch
-                {
-                    // Silently skip fields that can't be filled
-                }
+            }
+            catch
+            {
+                // Silently skip fields that can't be filled
             }
         }
     }

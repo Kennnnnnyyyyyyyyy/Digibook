@@ -10,6 +10,7 @@ public class PdfTemplate
     public string OriginalFileName { get; set; } = string.Empty;
     public string StoredPath { get; set; } = string.Empty;
     public bool HasFormFields { get; set; }  // True if PDF contains AcroForm fields
+    public string? FormSchemaJson { get; set; } // Serialized schema of PDF form fields (if any)
     public DateTime CreatedAtUtc { get; set; }
     
     // Navigation property

@@ -1,5 +1,6 @@
 // Purpose: Minimal API endpoints for managing PDF drafts.
 
+using System.Collections.Generic;
 using System.Text.Json;
 using Backend.Core.Auth;
 using Backend.Core.DTOs;
@@ -82,6 +83,7 @@ public static class DraftsEndpoints
 			return Results.Created($"/api/drafts/{entity.Id}", dto);
 		})
 		.WithName("CreateDraft")
+		.RequireAuthorization()
 		.Produces<DraftDto>(StatusCodes.Status201Created)
 		.Produces(StatusCodes.Status400BadRequest);
 
@@ -97,6 +99,7 @@ public static class DraftsEndpoints
 			return Results.Ok(drafts);
 		})
 		.WithName("ListDrafts")
+		.RequireAuthorization()
 		.Produces<List<DraftDto>>(StatusCodes.Status200OK);
 
 		// GET /api/drafts/{id}
@@ -142,6 +145,7 @@ public static class DraftsEndpoints
 			return Results.Ok(detail);
 		})
 		.WithName("GetDraft")
+		.RequireAuthorization()
 		.Produces<DraftDetailDto>(StatusCodes.Status200OK)
 		.Produces(StatusCodes.Status404NotFound);
 
@@ -159,6 +163,7 @@ public static class DraftsEndpoints
 			return Results.File(stream, "image/png", fileDownloadName: Path.GetFileName(draft.DrawingImagePath));
 		})
 		.WithName("GetDraftDrawing")
+		.RequireAuthorization()
 		.Produces(StatusCodes.Status200OK)
 		.Produces(StatusCodes.Status404NotFound);
 
@@ -175,12 +180,27 @@ public static class DraftsEndpoints
 
             try
             {
-                var formData = System.Text.Json.JsonDocument.Parse(draft.FormDataJson);
+				var formData = System.Text.Json.JsonDocument.Parse(draft.FormDataJson);
+
+				// Deserialize template form schema if present
+				List<Backend.Core.DTOs.PdfFormFieldSchemaDto>? formSchema = null;
+				if (!string.IsNullOrWhiteSpace(draft.Template.FormSchemaJson))
+				{
+					try
+					{
+						formSchema = System.Text.Json.JsonSerializer.Deserialize<List<Backend.Core.DTOs.PdfFormFieldSchemaDto>>(draft.Template.FormSchemaJson);
+					}
+					catch
+					{
+						formSchema = null;
+					}
+				}
                 var exportPath = await exporter.ExportDraftAsync(
                     draft.Template.StoredPath,
                     draft.Id.ToString(),
                     userId.ToString(),
-                    formData,
+					formData,
+					formSchema,
                     draft.AnnotationsJson,
                     draft.DrawingImagePath,
                     env.ContentRootPath
@@ -199,7 +219,7 @@ public static class DraftsEndpoints
             }
         })
         .WithName("ExportDraft")
-        .Produces<Backend.Core.DTOs.ExportDraftDto>(StatusCodes.Status200OK)
+		.RequireAuthorization()
         .Produces(StatusCodes.Status400BadRequest)
         .Produces(StatusCodes.Status404NotFound);
 
@@ -221,7 +241,7 @@ public static class DraftsEndpoints
             return Results.File(fileBytes, "application/pdf", fileDownloadName: $"{id}.pdf");
         })
         .WithName("GetDraftExportFile")
-        .Produces(StatusCodes.Status200OK)
+		.RequireAuthorization()
         .Produces(StatusCodes.Status404NotFound);
 
         return endpoints;

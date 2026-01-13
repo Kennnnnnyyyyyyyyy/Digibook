@@ -9,6 +9,15 @@ export interface Template {
   createdAtUtc: string;
 }
 
+export type TemplateFormFieldType = 'text' | 'checkbox' | 'radio' | 'dropdown' | 'list' | 'signature';
+
+export interface TemplateFormField {
+  name: string;
+  type: TemplateFormFieldType;
+  options?: string[];
+  required: boolean;
+}
+
 export async function getTemplates(): Promise<Template[]> {
   const response = await api.get<Template[]>('/api/templates');
   return response.data;
@@ -34,6 +43,11 @@ export async function uploadTemplate(
 
 export function getTemplateFileUrl(templateId: string): string {
   return `http://localhost:5263/api/templates/${templateId}/file`;
+}
+
+export async function getTemplateFormSchema(templateId: string): Promise<TemplateFormField[]> {
+  const response = await api.get<TemplateFormField[]>(`/api/templates/${templateId}/form-schema`);
+  return response.data;
 }
 
 export async function deleteTemplate(templateId: string): Promise<void> {

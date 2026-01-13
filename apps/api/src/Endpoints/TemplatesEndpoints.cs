@@ -1,10 +1,15 @@
 // Purpose: Minimal API endpoints for uploading/listing templates.
 
+using System.Collections.Generic;
+using System.Text.Json;
 using Backend.Core.DTOs;
 using Backend.Data;
 using Backend.Infrastructure.Storage;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using iText.Forms;
+using iText.Forms.Fields;
+using iText.Kernel.Pdf;
 
 namespace DigitalLogbook.Api.Endpoints;
 
@@ -58,14 +63,83 @@ public static class TemplatesEndpoints
 				await uploadStream.CopyToAsync(outStream);
 			}
 
-			// Detect if PDF has form fields using iText7
+			// Detect if PDF has form fields using iText7 and capture schema
 			bool hasFormFields = false;
+			string? formSchemaJson = null;
 			try
 			{
-				using var pdfReader = new iText.Kernel.Pdf.PdfReader(storedFilePath);
-				using var pdfDoc = new iText.Kernel.Pdf.PdfDocument(pdfReader);
-				var acroForm = iText.Forms.PdfAcroForm.GetAcroForm(pdfDoc, false);
-				hasFormFields = acroForm?.GetAllFormFields()?.Count > 0;
+				using var pdfReader = new PdfReader(storedFilePath);
+				using var pdfDoc = new PdfDocument(pdfReader);
+				var acroForm = PdfAcroForm.GetAcroForm(pdfDoc, false);
+				var allFields = acroForm?.GetAllFormFields();
+				hasFormFields = allFields?.Count > 0;
+
+				if (hasFormFields == true && allFields is not null)
+				{
+					var schema = new List<PdfFormFieldSchemaDto>();
+
+					// Dictionary preserves insertion order in .NET Core 3.0+
+					foreach (var kv in allFields)
+					{
+						var name = kv.Key;
+						var field = kv.Value;
+						var type = "text";
+						bool required = false;
+						IEnumerable<string>? options = null;
+
+						if (field is PdfButtonFormField buttonField)
+						{
+							// Radio buttons and checkboxes are button fields
+							if (buttonField.IsRadio())
+							{
+								type = "radio";
+							}
+							else
+							{
+								type = "checkbox";
+							}
+						}
+						else if (field is PdfChoiceFormField choiceField)
+						{
+							type = choiceField.IsCombo() ? "dropdown" : "list";
+
+							var opts = choiceField.GetOptions();
+							if (opts != null)
+							{
+								var list = new List<string>();
+								for (int i = 0; i < opts.Size(); i++)
+								{
+									var item = opts.Get(i);
+									if (item is iText.Kernel.Pdf.PdfString s)
+									{
+										list.Add(s.ToString());
+									}
+									else if (item is iText.Kernel.Pdf.PdfArray arr && arr.Size() > 0)
+									{
+										list.Add(arr.GetAsString(0)?.ToString() ?? string.Empty);
+									}
+								}
+
+								if (list.Count > 0)
+									options = list;
+							}
+						}
+
+						// Required flag from field properties
+						try
+						{
+							required = field.IsRequired();
+						}
+						catch
+						{
+							required = false;
+						}
+
+						schema.Add(new PdfFormFieldSchemaDto(name, type, options, required));
+					}
+
+					formSchemaJson = JsonSerializer.Serialize(schema);
+				}
 			}
 			catch
 			{
@@ -82,6 +156,7 @@ public static class TemplatesEndpoints
 				OriginalFileName = file.FileName,
 				StoredPath = storedFilePath, // store absolute path for consistency
 				HasFormFields = hasFormFields,
+				FormSchemaJson = formSchemaJson,
 				CreatedAtUtc = createdAtUtc,
 			};
 
@@ -92,6 +167,7 @@ public static class TemplatesEndpoints
 			return Results.Created($"/api/templates/{entity.Id}", dto);
 		})
 		.WithName("UploadTemplate")
+		.RequireAuthorization()
 		.Accepts<IFormFile>("multipart/form-data")
 		.Produces<TemplateDto>(StatusCodes.Status201Created)
 		.Produces(StatusCodes.Status400BadRequest);
@@ -106,6 +182,7 @@ public static class TemplatesEndpoints
 			return Results.Ok(list);
 		})
 		.WithName("ListTemplates")
+		.RequireAuthorization()
 		.Produces<List<TemplateDto>>(StatusCodes.Status200OK);
 
 		// GET /api/templates/{id}/file - stream PDF (inline + range)
@@ -130,6 +207,33 @@ endpoints.MapGet("/api/templates/{id:guid}/file", async (Guid id, AppDbContext d
 .WithName("GetTemplateFile")
 .Produces(StatusCodes.Status200OK)
 .Produces(StatusCodes.Status404NotFound);
+
+		// GET /api/templates/{id}/form-schema
+		endpoints.MapGet("/api/templates/{id:guid}/form-schema", async (Guid id, AppDbContext db) =>
+		{
+			var tpl = await db.PdfTemplates.FirstOrDefaultAsync(t => t.Id == id);
+			if (tpl is null)
+				return Results.NotFound(new { error = "Template not found." });
+
+			if (string.IsNullOrWhiteSpace(tpl.FormSchemaJson))
+			{
+				return Results.Ok(new List<PdfFormFieldSchemaDto>());
+			}
+
+			try
+			{
+				var schema = JsonSerializer.Deserialize<List<PdfFormFieldSchemaDto>>(tpl.FormSchemaJson) ?? new List<PdfFormFieldSchemaDto>();
+				return Results.Ok(schema);
+			}
+			catch
+			{
+				return Results.Ok(new List<PdfFormFieldSchemaDto>());
+			}
+		})
+		.WithName("GetTemplateFormSchema")
+		.RequireAuthorization()
+		.Produces<List<PdfFormFieldSchemaDto>>(StatusCodes.Status200OK)
+		.Produces(StatusCodes.Status404NotFound);
 
 		// DELETE /api/templates/{id} - delete template
 		endpoints.MapDelete("/api/templates/{id:guid}", async (Guid id, AppDbContext db) =>
@@ -157,6 +261,7 @@ endpoints.MapGet("/api/templates/{id:guid}/file", async (Guid id, AppDbContext d
 			return Results.NoContent();
 		})
 		.WithName("DeleteTemplate")
+		.RequireAuthorization()
 		.Produces(StatusCodes.Status204NoContent)
 		.Produces(StatusCodes.Status404NotFound);
 
