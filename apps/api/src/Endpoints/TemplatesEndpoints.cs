@@ -93,6 +93,26 @@ public static class TemplatesEndpoints
 							if (buttonField.IsRadio())
 							{
 								type = "radio";
+								// Radio buttons have multiple widgets (options)
+								// Extract the export values (the actual values for each radio option)
+								var radioOptions = new List<string>();
+								var appearances = buttonField.GetAppearanceStates();
+								if (appearances != null && appearances.Length > 0)
+								{
+									foreach (var appearance in appearances)
+									{
+										// Skip "Off" state (deselected state)
+										if (appearance != null && !appearance.Equals("Off", StringComparison.OrdinalIgnoreCase))
+										{
+											radioOptions.Add(appearance);
+										}
+									}
+								}
+								
+								if (radioOptions.Count > 0)
+								{
+									options = radioOptions;
+								}
 							}
 							else
 							{

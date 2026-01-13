@@ -441,11 +441,11 @@ export default function EditorPage() {
               italic={italic}
             />
           ) : (
-            <div style={{ border: '2px solid #ccc', borderRadius: '4px', height: '80vh', overflow: 'auto' }}>
+            <div style={{ border: '2px solid #ccc', borderRadius: '4px', height: '80vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               <iframe
                 title="Template PDF"
                 src={pdfUrl}
-                style={{ width: '100%', height: '100%', border: 'none' }}
+                style={{ width: '100%', flex: 1, border: 'none' }}
               />
             </div>
           )}
